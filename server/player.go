@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"strconv"
+	"strings"
+//	"encoding/binary"
 
 	"github.com/HFO4/gbc-in-cloud/driver"
 	"github.com/HFO4/gbc-in-cloud/gb"
@@ -65,11 +67,135 @@ func (player *Player) Init() bool {
 
 }
 
+// Search Page
+func (player *Player) RenderSearchScreen() []byte {
+	res := "\033[H"
+	res += "Welcome to " + "Search Page" + "\r\n"
+	res += fmt.Stringer(aurora.Gray(1-1, " TAB ").BgGray(24-1)).String() + " is to show whole list of GameList" + "\r\n"
+	res += fmt.Stringer(aurora.Gray(1-1, " BackSpace ").BgGray(24-1)).String() + " is to clear the current page" + "\r\n"
+
+
+	return []byte(res)
+}
+
+func (player *Player) SearchScreen() int {
+
+	//Clean screen
+	_, err := player.Conn.Write([]byte("\033[2J\033[H"))
+	if err != nil {
+		return -1
+	}
+
+	player.Init()
+
+
+
+	tmp_gameList_TitleOnly := make([]string,0)
+	tmpbuf := make([]byte, 0)
+	player_tmpbuf := make([]byte, 0)
+	player_inputString := player_tmpbuf
+
+	for index, line := range *player.GameList {
+		//fmt.Println(index, line)
+		var title = "Title: " + line.Title + " | index: " + strconv.Itoa(index+1)
+		tmp_gameList_TitleOnly = append(tmp_gameList_TitleOnly, title)
+	}
+	
+	for {
+		var n int
+		_, err = player.Conn.Write(player.RenderSearchScreen())
+		buf := make([]byte, 512)
+
+		n, err = player.Conn.Read(buf)
+		inputKey := buf[:n]
+		if err != nil {
+			return -1
+		}
+//testline
+		tmpbuf = append(tmpbuf, buf[0])
+		inputString := tmpbuf
+		if 31 < buf[0] {
+			player_tmpbuf = append(player_tmpbuf, buf[0])
+			player_inputString = player_tmpbuf
+		}
+
+		fmt.Println("tmpbufraw: ", tmpbuf)
+		fmt.Println("tmpbuf: ", string(tmpbuf))
+		fmt.Println("bufraw: ", buf[0])
+		fmt.Println("buf: ", string(buf[0]))
+		fmt.Println("inputstring: ", string(inputString))//testline
+		player.Conn.Write(player_inputString)
+
+
+
+
+		switch inputKey[len(inputKey)-1] {
+		// Enter key pressed => reset bufs
+		case 13, 10, 0:
+			//fmt.Println(inputKey, strconv.Atoi(string(inputKey)), "\r\n")
+			player.Conn.Write([]byte("\033[2J \r\n\n"))
+
+			inputString = inputString[:len(inputString)-1]
+	
+			fmt.Println("Enter pressed for Search")
+			for index, line := range tmp_gameList_TitleOnly {
+				fmt.Println("Searched index: ", index)
+				var res = strings.Contains(line, string(inputString))
+				var searchoutput = strconv.FormatBool(res) + " index: " + strconv.Itoa(index+1) + "\r\n"
+				if res == true {
+					player.Conn.Write([]byte(searchoutput))
+					player.Conn.Write([]byte(line + "\r\n\n"))
+				}
+			}
+				
+			tmpbuf = []byte{}
+			inputString = []byte{}
+			player_tmpbuf = []byte{}
+			player_inputString = []byte{}
+		//Backspace key pressed		
+		case 127:
+			fmt.Println("Backspace pressed for clear")
+			player.Conn.Write([]byte("\033[2J"))
+			player.Conn.Write([]byte("\r\n\n"))
+			tmpbuf = []byte{}
+			inputString = []byte{}
+			player_tmpbuf = []byte{}
+			player_inputString = []byte{}
+		// ESC key pressed
+		case 27:
+			player.Conn.Write([]byte("\033[2J"))
+			tmpbuf = []byte{}
+			inputString = []byte{}
+			player_tmpbuf = []byte{}
+			player_inputString = []byte{}
+			return 0
+		//TAB key pressed
+		case 9:
+			fmt.Println("TAB pressed for show whole list")
+			player.Conn.Write([]byte("\033[2J"))
+			fmt.Print("shown index: ")
+			for index, line := range tmp_gameList_TitleOnly {
+				player.Conn.Write([]byte("\r\n" + line))
+				fmt.Print(index, " ")
+			}
+			fmt.Println()
+			tmpbuf = []byte{}
+			inputString = []byte{}
+			player_tmpbuf = []byte{}
+			player_inputString = []byte{}
+
+		}
+
+	}
+
+}
+
 // Generate welcome and game selection screen
 func (player *Player) RenderWelcomeScreen() []byte {
 	res := "\033[H"
 	res += "Welcome to " + fmt.Stringer(aurora.Bold(aurora.Green("Gameboy.Live"))).String() + ", you can enjoy GAMEBOY games in your terminal with \"cloud gaming\" experience.\r\n"
 	res += "Use " + fmt.Stringer(aurora.Gray(1-1, "Direction keys").BgGray(24-1)).String() + " in your keyboard to select a game, " + fmt.Stringer(aurora.Gray(1-1, " Enter ").BgGray(24-1)).String() + " key to confirm, " + fmt.Stringer(aurora.Gray(1-1, " M ").BgGray(24-1)).String() + " key to enter multi-player mode and select a partner.\r\n"
+	res += "Press" + fmt.Stringer(aurora.Gray(1-1, " S ").BgGray(24-1)).String() + "for Search Mode. \r\n"
 	res += "\r\n\r\n"
 
 	for k, v := range *player.GameList {
@@ -91,7 +217,6 @@ func (player *Player) RenderWelcomeScreen() []byte {
 	selected game ID.
 */
 func (player *Player) Welcome() int {
-
 	//Clean screen
 	_, err := player.Conn.Write([]byte("\033[2J\033[H"))
 	if err != nil {
@@ -101,6 +226,8 @@ func (player *Player) Welcome() int {
 	player.Init()
 
 	for {
+		player.Conn.Write([]byte("Welcome() test line"))
+
 		var n int
 		_, err = player.Conn.Write(player.RenderWelcomeScreen())
 		buf := make([]byte, 512)
@@ -128,6 +255,7 @@ func (player *Player) Welcome() int {
 		// Enter key pressed
 		case 10, 0:
 			return player.Selected
+		// M key pressed
 		case 109:
 			player.SelectPlayer()
 			_, err = player.Conn.Write([]byte("\033[2J\033[H"))
@@ -138,6 +266,22 @@ func (player *Player) Welcome() int {
 				player.Emulator.Serial.SetTarget(&PlayerList[player.SelectedPlayer].Emulator.Serial)
 				log.Printf("[Serial] Player %s connect with Player %s", player.SelectedPlayerID, PlayerList[player.SelectedPlayer].SelectedPlayerID)
 			}
+		// S key pressed => activate Search 
+		case 115:
+			player.Conn.Write([]byte("testline"))
+			search := player.SearchScreen()
+			fmt.Println(search)
+		
+		// Q key pressed => activate logout
+		case 113:
+			log.Println("User quit")
+			player.Emulator.Exit = true
+			err := player.Conn.Close()
+			if err != nil {
+				log.Println("Failed to close connection")
+			}
+			player.Logout()
+			return 0
 		}
 
 	}
@@ -273,6 +417,8 @@ func (player *Player) Logout() {
 func (player *Player) Serve() {
 
 	game := player.Welcome()
+	fmt.Println("gameindex: ", game)//testline
+	
 
 	if game < 0 {
 		log.Println("User quit")
